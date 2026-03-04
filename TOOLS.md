@@ -82,6 +82,16 @@ Environment variables are set for the debugged program before execution. This is
 - Configuring application behavior (DEBUG_MODE, LOG_LEVEL, etc.)
 - Testing with different environment configurations
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "GDB session started successfully",
+  "program": "/path/to/myprogram",
+  "startup_output": "Reading symbols from /path/to/myprogram...\nReading symbols from /usr/lib/libc.so.6...\n(gdb)"
+}
+```
+
 ### `gdb_execute_command`
 Execute a GDB command. Supports both CLI and MI commands.
 
@@ -114,6 +124,35 @@ structured output and can be separately permissioned.
 - `list` - Show source code
 - `disassemble` - Show assembly code
 
+**Example Output (CLI command):**
+```json
+{
+  "status": "success",
+  "output": "Num     Type           Disp Enb Address            What\n1       breakpoint     keep y   0x0000555555555189 in main at main.cpp:10"
+}
+```
+
+**Example Output (MI command):**
+```json
+{
+  "status": "success",
+  "output": {
+    "breakpoints": [
+      {
+        "number": "1",
+        "type": "breakpoint",
+        "disp": "keep",
+        "enabled": "y",
+        "addr": "0x0000555555555189",
+        "func": "main",
+        "file": "main.cpp",
+        "line": "10"
+      }
+    ]
+  }
+}
+```
+
 ### `gdb_call_function`
 Call a function in the target process.
 
@@ -142,11 +181,36 @@ Call a function in the target process.
 
 **Note:** This dedicated tool enables MCP clients to implement separate permission controls for function calling, which executes code in the target process with the target's privileges.
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "function_call": "printf(\"value: %d\\n\", x)",
+  "result": "value: 42\n"
+}
+```
+
 ### `gdb_get_status`
 Get the current status of the GDB session.
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "GDB session is active and running"
+}
+```
+
 ### `gdb_stop_session`
 Stop the current GDB session.
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "GDB session stopped successfully"
+}
+```
 
 ## Thread Inspection
 
@@ -158,12 +222,81 @@ Get information about all threads in the debugged process.
 - Current thread ID
 - Thread count
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "threads": [
+    {
+      "id": "1",
+      "state": "running",
+      "name": "main_thread",
+      "frame": {
+        "addr": "0x00007ffff7a10d60",
+        "func": "__select",
+        "file": "select.c",
+        "fullname": "/build/glibc-linux/select.c",
+        "line": "28"
+      }
+    },
+    {
+      "id": "2",
+      "state": "blocked",
+      "name": "worker_thread",
+      "frame": {
+        "addr": "0x00007ffff7a10eac",
+        "func": "__pselect50",
+        "file": "pselect.c",
+        "fullname": "/build/glibc-linux/pselect.c",
+        "line": "48"
+      }
+    }
+  ],
+  "current_thread": "1",
+  "count": 2
+}
+```
+
 ### `gdb_get_backtrace`
 Get stack backtrace for a thread.
 
 **Parameters:**
 - `thread_id` (optional): Thread ID (None for current thread)
 - `max_frames`: Maximum frames to retrieve (default: 100)
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "frames": [
+    {
+      "level": "0",
+      "addr": "0x0000555555555189",
+      "func": "main",
+      "file": "main.cpp",
+      "fullname": "/home/user/project/main.cpp",
+      "line": "15"
+    },
+    {
+      "level": "1",
+      "addr": "0x00007ffff7a3d505",
+      "func": "__libc_start_main",
+      "file": "libc-start.c",
+      "fullname": "/build/glibc-linux/libc-start.c",
+      "line": "342"
+    },
+    {
+      "level": "2",
+      "addr": "0x0000555555554ae9",
+      "func": "_start",
+      "file": "??",
+      "fullname": "??",
+      "line": "0"
+    }
+  ],
+  "count": 3
+}
+```
 
 ## Breakpoints and Execution Control
 
@@ -180,6 +313,23 @@ Set a breakpoint at a location.
 - `location: "foo.c:42"` - Break at line 42 of foo.c
 - `location: "*0x12345678"` - Break at memory address
 - `condition: "x > 10"` - Only break when x > 10
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "number": "1",
+  "type": "breakpoint",
+  "enabled": "y",
+  "addr": "0x0000555555555189",
+  "func": "main",
+  "file": "main.cpp",
+  "fullname": "/home/user/project/main.cpp",
+  "line": "15",
+  "times": "0",
+  "original-location": "main.cpp:15"
+}
+```
 
 ### `gdb_list_breakpoints`
 List all breakpoints with structured data.
@@ -234,15 +384,39 @@ Continue execution until next breakpoint.
 
 **IMPORTANT:** Only use when program is PAUSED (at a breakpoint). If program hasn't started, use `gdb_execute_command` with "run" instead.
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "Program continued and hit breakpoint 2 at main.cpp:25"
+}
+```
+
 ### `gdb_step`
 Step into next instruction (enters functions).
 
 **IMPORTANT:** Only works when program is PAUSED at a specific location.
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "Stepped into function helper() at main.cpp:42"
+}
+```
+
 ### `gdb_next`
 Step over to next line (doesn't enter functions).
 
 **IMPORTANT:** Only works when program is PAUSED at a specific location.
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "Stepped over function call, now at main.cpp:43"
+}
+```
 
 ### `gdb_interrupt`
 Interrupt (pause) a running program.
@@ -254,6 +428,14 @@ Interrupt (pause) a running program.
 - Commands are timing out because program is running
 
 **After interrupting:** You can use `gdb_get_backtrace`, `gdb_get_variables`, etc.
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "message": "Program interrupted at __select() in select.c:28"
+}
+```
 
 ## Data Inspection
 
@@ -269,6 +451,16 @@ Evaluate a C/C++ expression in the current context.
 - `"array[5]"` - Access array element
 - `"obj->field"` - Access struct field
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "expression": "x + y",
+  "value": "42",
+  "type": "int"
+}
+```
+
 ### `gdb_get_variables`
 Get local variables for a stack frame.
 
@@ -276,8 +468,60 @@ Get local variables for a stack frame.
 - `thread_id` (optional): Thread ID
 - `frame`: Frame number (0 is current, default: 0)
 
+**Example Output:**
+```json
+{
+  "status": "success",
+  "variables": [
+    {
+      "name": "x",
+      "value": "42",
+      "type": "int"
+    },
+    {
+      "name": "str",
+      "value": "0x7fffffffde50",
+      "type": "const char *"
+    },
+    {
+      "name": "obj",
+      "value": "{field1 = 10, field2 = 20}",
+      "type": "struct MyStruct"
+    }
+  ],
+  "count": 3
+}
+```
+
 ### `gdb_get_registers`
 Get CPU register values for the current frame.
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "registers": {
+    "rax": "0x0000000000000000",
+    "rbx": "0x0000555555558d60",
+    "rcx": "0x00007ffff7a25cf8",
+    "rdx": "0x00007fffffffe078",
+    "rsi": "0x00007fffffffe068",
+    "rdi": "0x0000000000000001",
+    "rbp": "0x00007fffffffdf10",
+    "rsp": "0x00007fffffffdee8",
+    "r8": "0x0000000000000000",
+    "r9": "0x00007ffff7fe07d0",
+    "r10": "0x0000000000000827",
+    "r11": "0x0000000000000206",
+    "r12": "0x0000000000000000",
+    "r13": "0x0000000000000000",
+    "r14": "0x0000000000000000",
+    "r15": "0x0000000000000000",
+    "rip": "0x0000555555555189"
+  },
+  "count": 17
+}
+```
 
 ### `gdb_vmmap`
 Get the virtual memory map of the debugged process using the GEF `vmmap` command.

@@ -949,3 +949,164 @@ class TestCallFunction:
 
         assert result["status"] == "error"
         assert "No symbol table" in result["message"]
+
+
+class TestVMMap:
+    """Test cases for vmmap functionality."""
+
+    def test_vmmap_no_session(self):
+        """Test vmmap when no session is active."""
+        session = GDBSession()
+        result = session.get_vmmap()
+        assert result["status"] == "error"
+        assert "No active GDB session" in result["message"]
+
+    def test_vmmap_gdb_not_alive(self):
+        """Test vmmap when GDB process is not alive."""
+        session = GDBSession()
+        session.controller = Mock()  # Create a mock controller
+        session.is_running = False
+
+        with patch.object(session, "_is_gdb_alive", return_value=False):
+            result = session.get_vmmap()
+
+        assert result["status"] == "error"
+        assert "GDB process has exited" in result["message"]
+
+    def test_vmmap_execute_command_error(self):
+        """Test vmmap when execute_command returns error."""
+        session = GDBSession()
+        session.controller = Mock()
+        session.is_running = True
+
+        with patch.object(session, "_is_gdb_alive", return_value=True):
+            with patch.object(
+                session, "execute_command", return_value={"status": "error", "message": "vmmap not found"}
+            ):
+                result = session.get_vmmap()
+
+        assert result["status"] == "error"
+        assert "vmmap command failed" in result["message"]
+
+    def test_vmmap_parse_output(self):
+        """Test vmmap output parsing with mock data."""
+        session = GDBSession()
+        session.controller = Mock()
+        session.is_running = True
+
+        # Mock vmmap output (simplified)
+        vmmap_output = """[ Legend:  Code | Stack | Heap ]
+Start              End                Offset             Perm Path
+0x0000555555554000 0x0000555555555000 0x0000000000000000 r-- /home/user/program
+0x0000555555555000 0x0000555555556000 0x0000000000001000 r-x /home/user/program
+0x0000555555558000 0x0000555555559000 0x0000000000003000 rw- /home/user/program
+0x00007ffff7c00000 0x00007ffff7c28000 0x0000000000000000 r-- /usr/lib/libc.so.6
+0x00007ffff7c28000 0x00007ffff7db0000 0x0000000000028000 r-x /usr/lib/libc.so.6
+0x00007ffffffde000 0x00007ffffffff000 0x0000000000000000 rw- [stack]
+0x00007ffff7e05000 0x00007ffff7e12000 0x0000000000000000 rw- [heap]
+0x00007ffff7fc3000 0x00007ffff7fc5000 0x0000000000000000 r-x [vdso]
+"""
+
+        with patch.object(session, "_is_gdb_alive", return_value=True):
+            with patch.object(
+                session, "execute_command", return_value={"status": "success", "output": vmmap_output}
+            ):
+                result = session.get_vmmap()
+
+        assert result["status"] == "success"
+        assert "regions" in result
+        assert result["count"] == 8
+
+        # Check specific regions
+        regions = result["regions"]
+
+        # First region - program read-only
+        assert regions[0]["start_address"] == "0x0000555555554000"
+        assert regions[0]["end_address"] == "0x0000555555555000"
+        assert regions[0]["size"] == 4096
+        assert regions[0]["permissions"] == "r--"
+        assert regions[0]["path"] == "/home/user/program"
+        assert regions[0]["type"] == "data"
+
+        # Executable region
+        assert regions[1]["permissions"] == "r-x"
+        assert regions[1]["type"] == "code"
+
+        # Stack region
+        stack_region = [r for r in regions if "[stack]" in r["path"]][0]
+        assert stack_region["type"] == "stack"
+
+        # Heap region
+        heap_region = [r for r in regions if "[heap]" in r["path"]][0]
+        assert heap_region["type"] == "heap"
+
+        # Library region
+        libc_regions = [r for r in regions if "libc.so" in r["path"]]
+        assert len(libc_regions) > 0
+        assert any(r["type"] == "library" for r in libc_regions)
+
+    def test_vmmap_empty_output(self):
+        """Test vmmap with empty output."""
+        session = GDBSession()
+        session.controller = Mock()
+        session.is_running = True
+
+        with patch.object(session, "_is_gdb_alive", return_value=True):
+            with patch.object(session, "execute_command", return_value={"status": "success", "output": ""}):
+                result = session.get_vmmap()
+
+        assert result["status"] == "success"
+        assert result["count"] == 0
+        assert result["regions"] == []
+
+    def test_vmmap_with_ansi_codes(self):
+        """Test vmmap parsing with ANSI color codes."""
+        session = GDBSession()
+        session.controller = Mock()
+        session.is_running = True
+
+        # Output with ANSI color codes
+        vmmap_output = """\x1b[31m0x0000555555555000\x1b[0m \x1b[31m0x0000555555556000\x1b[0m \x1b[31m0x0000000000001000\x1b[0m \x1b[31mr-x\x1b[0m \x1b[31m/path/to/code\x1b[0m
+0x0000555555558000 0x0000555555559000 0x0000000000003000 rw- /path/to/data
+"""
+
+        with patch.object(session, "_is_gdb_alive", return_value=True):
+            with patch.object(session, "execute_command", return_value={"status": "success", "output": vmmap_output}):
+                result = session.get_vmmap()
+
+        assert result["status"] == "success"
+        assert result["count"] == 2
+        assert result["regions"][0]["permissions"] == "r-x"
+        assert result["regions"][1]["permissions"] == "rw-"
+
+    def test_determine_region_type(self):
+        """Test _determine_region_type helper method."""
+        session = GDBSession()
+
+        # Test heap
+        assert session._determine_region_type("[heap]", "rw-") == "heap"
+
+        # Test stack
+        assert session._determine_region_type("[stack]", "rw-") == "stack"
+
+        # Test system regions
+        assert session._determine_region_type("[vdso]", "r-x") == "system"
+        assert session._determine_region_type("[vvar]", "r--") == "system"
+        assert session._determine_region_type("[vsyscall]", "--x") == "system"
+
+        # Test library code
+        assert session._determine_region_type("/usr/lib/libc.so.6", "r-x") == "library"
+
+        # Test program code
+        assert session._determine_region_type("/path/to/program", "r-x") == "code"
+
+        # Test data/writable regions
+        assert session._determine_region_type("/usr/lib/libc.so.6", "rw-") == "library"
+        assert session._determine_region_type("/path/to/data", "rw-") == "data"
+
+        # Test read-only regions
+        assert session._determine_region_type("/path/to/readonly", "r--") == "data"
+
+        # Test unknown
+        assert session._determine_region_type("", "---") == "unknown"
+        assert session._determine_region_type("/path", "--x") == "code"

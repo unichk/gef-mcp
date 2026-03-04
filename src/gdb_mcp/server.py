@@ -349,6 +349,20 @@ async def list_tools() -> list[Tool]:
             ),
             inputSchema=CallFunctionArgs.model_json_schema(),
         ),
+        Tool(
+            name="gdb_vmmap",
+            description=(
+                "Get virtual memory map of the debugged process. "
+                "Returns structured information about all memory regions including "
+                "their addresses, sizes, permissions, and associated files/regions. "
+                "Useful for understanding process memory layout, locating code sections, "
+                "heap/stack regions, and library mappings."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
     ]
 
 
@@ -447,6 +461,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         elif name == "gdb_call_function":
             call_args: CallFunctionArgs = CallFunctionArgs(**arguments)
             result = gdb_session.call_function(function_call=call_args.function_call)
+
+        elif name == "gdb_vmmap":
+            result = gdb_session.get_vmmap()
 
         else:
             result = {"status": "error", "message": f"Unknown tool: {name}"}

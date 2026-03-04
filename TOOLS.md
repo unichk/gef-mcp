@@ -278,3 +278,62 @@ Get local variables for a stack frame.
 
 ### `gdb_get_registers`
 Get CPU register values for the current frame.
+
+### `gdb_vmmap`
+Get the virtual memory map of the debugged process using the GEF `vmmap` command.
+
+**Returns:**
+- `status`: "success" or "error"
+- `regions`: Array of memory region objects, each containing:
+  - `start_address`: Start address in hex (e.g., "0x0000555555554000")
+  - `end_address`: End address in hex (e.g., "0x0000555555555000")
+  - `size`: Size in bytes (calculated from end - start)
+  - `offset`: Offset in file (hex, or "0x0" if not applicable)
+  - `permissions`: Permission flags (e.g., "r--", "r-x", "rw-")
+  - `path`: File path or region name (e.g., "/usr/lib/libc.so.6", "[heap]", "[stack]")
+  - `type`: Region type: "code", "data", "heap", "stack", "library", "system", or "unknown"
+- `count`: Number of memory regions
+
+**Use Cases:**
+- Understand the process memory layout
+- Locate code sections and their addresses
+- Find heap and stack memory regions
+- Identify library mappings and ASLR (Address Space Layout Randomization)
+- Analyze memory protection settings
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "count": 21,
+  "regions": [
+    {
+      "start_address": "0x0000555555554000",
+      "end_address": "0x0000555555555000",
+      "size": 4096,
+      "offset": "0x0000000000000000",
+      "permissions": "r--",
+      "path": "/home/unicorn/Documents/gef-mcp/examples/sample_program",
+      "type": "data"
+    },
+    {
+      "start_address": "0x0000555555555000",
+      "end_address": "0x0000555555556000",
+      "size": 4096,
+      "offset": "0x0000000000001000",
+      "permissions": "r-x",
+      "path": "/home/unicorn/Documents/gef-mcp/examples/sample_program",
+      "type": "code"
+    },
+    {
+      "start_address": "0x00007ffffffde000",
+      "end_address": "0x00007ffffffff000",
+      "size": 139264,
+      "offset": "0x0000000000000000",
+      "permissions": "rw-",
+      "path": "[stack]",
+      "type": "stack"
+    }
+  ]
+}
+```

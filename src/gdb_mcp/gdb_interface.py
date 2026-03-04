@@ -1255,3 +1255,145 @@ class GDBSession:
             "function_call": function_call,
             "result": console_output.strip() if console_output else "(no return value)",
         }
+
+    def get_vmmap(self) -> dict[str, Any]:
+        """
+        Get the virtual memory map of the debugged process.
+
+        Uses the GEF 'vmmap' command to display all memory regions with their
+        addresses, permissions, and associated files/regions.
+
+        Returns:
+            Dict with status and array of memory region objects containing:
+            - start_address: Start address (hex string)
+            - end_address: End address (hex string)
+            - size: Size in bytes
+            - offset: Offset in file (if applicable, else "0x0")
+            - permissions: Permission string (r/w/x flags)
+            - path: File path or region name ([heap], [stack], etc.)
+            - type: Region type (code, data, heap, stack, library, system)
+        """
+        import re
+
+        if not self.controller:
+            return {"status": "error", "message": "No active GDB session"}
+
+        if not self._is_gdb_alive():
+            return {
+                "status": "error",
+                "message": "GDB process has exited - cannot execute vmmap",
+            }
+
+        result = self.execute_command("vmmap")
+
+        if result["status"] == "error":
+            return {
+                "status": "error",
+                "message": f"vmmap command failed: {result.get('message', 'unknown error')}",
+            }
+
+        output = result.get("output", "")
+        lines = output.split("\n")
+
+        regions = []
+
+        for line in lines:
+            line = line.strip()
+
+            # Skip empty lines, legend/header lines
+            if not line or "Legend:" in line or "Start" in line or "─" in line:
+                continue
+
+            # Parse vmmap output line format:
+            # 0x0000555555554000 0x0000555555555000 0x0000000000000000 r-- /path/to/file
+            # Output may contain:
+            # - ANSI color codes: \x1b[...m
+            # - GEF delimiter chars: \x01\x02
+
+            # Remove ANSI color codes
+            ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+            clean_line = ansi_escape.sub("", line)
+
+            # Remove GEF delimiter characters (SOH \x01 and STX \x02)
+            clean_line = clean_line.replace("\x01", "").replace("\x02", "")
+
+            # Parse the columns: start end offset perms path
+            parts = clean_line.split()
+
+            if len(parts) < 4:
+                # Not enough columns
+                continue
+
+            try:
+                start_addr = parts[0]
+                end_addr = parts[1]
+                offset = parts[2] if len(parts) > 2 else "0x0"
+                perms = parts[3] if len(parts) > 3 else "---"
+
+                # Path is everything after the permissions (may contain spaces)
+                path = " ".join(parts[4:]) if len(parts) > 4 else ""
+
+                # Validate addresses are hex
+                int(start_addr, 16)
+                int(end_addr, 16)
+
+                # Calculate size
+                start_int = int(start_addr, 16)
+                end_int = int(end_addr, 16)
+                size = end_int - start_int
+
+                # Determine region type based on path and permissions
+                region_type = self._determine_region_type(path, perms)
+
+                region = {
+                    "start_address": start_addr,
+                    "end_address": end_addr,
+                    "size": size,
+                    "offset": offset,
+                    "permissions": perms,
+                    "path": path,
+                    "type": region_type,
+                }
+
+                regions.append(region)
+
+            except (ValueError, IndexError):
+                # Skip lines that don't parse correctly
+                continue
+
+        return {
+            "status": "success",
+            "regions": regions,
+            "count": len(regions),
+        }
+
+    def _determine_region_type(self, path: str, permissions: str) -> str:
+        """Determine the type of memory region based on path and permissions."""
+        if not path:
+            return "unknown"
+
+        # Special regions
+        if "[heap]" in path:
+            return "heap"
+        if "[stack]" in path:
+            return "stack"
+        if "[vdso]" in path:
+            return "system"
+        if "[vvar]" in path:
+            return "system"
+        if "[vsyscall]" in path:
+            return "system"
+
+        # Check if it's a library first (based on .so extension)
+        if ".so" in path or ".so." in path:
+            return "library"
+
+        # Check if it's executable code
+        if "x" in permissions:
+            return "code"
+
+        # Everything else with read permission is data
+        if "r" in permissions or "w" in permissions:
+            return "data"
+
+        return "unknown"

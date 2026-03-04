@@ -1,4 +1,4 @@
-# GDB MCP Server
+# GEF MCP Server
 
 An MCP (Model Context Protocol) server that provides AI assistants with programmatic access to GDB debugging sessions. This allows AI models to interact with debuggers in the same way IDEs like VS Code and CLion do, using the GDB/MI (Machine Interface) protocol.
 

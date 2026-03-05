@@ -1305,6 +1305,40 @@ class GDBSession:
             "result": console_output.strip() if console_output else "(no return value)",
         }
 
+    def read_memory(self, address: str, count: int = 64) -> dict[str, Any]:
+        """
+        Read memory bytes from the debugged process.
+
+        Args:
+            address: Memory address to read from (hex string like "0x7fffffffe000" or expression like "$rsp")
+            count: Number of bytes to read (1-65536, default: 64)
+
+        Returns:
+            Dict with status and memory contents
+        """
+        if not self.controller:
+            return {"status": "error", "message": "No active GDB session"}
+
+        if count < 1 or count > 65536:
+            return {"status": "error", "message": "count must be between 1 and 65536"}
+
+        result = self.execute_command(f"-data-read-memory-bytes {address} {count}")
+
+        if result.get("status") == "error":
+            return result
+
+        mi_result = self._extract_mi_result(result)
+        if mi_result is None:
+            return {"status": "error", "message": "Failed to read memory"}
+
+        memory = mi_result.get("memory", [])
+        return {
+            "status": "success",
+            "address": address,
+            "count": count,
+            "memory": memory,
+        }
+
     def get_vmmap(self) -> dict[str, Any]:
         """
         Get the virtual memory map of the debugged process.

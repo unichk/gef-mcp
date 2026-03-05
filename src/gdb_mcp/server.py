@@ -105,6 +105,13 @@ class CallFunctionArgs(BaseModel):
     )
 
 
+class ReadMemoryArgs(BaseModel):
+    address: str = Field(
+        ..., description="Memory address to read from (hex like '0x7fffffffe000' or expression like '$rsp')"
+    )
+    count: int = Field(64, description="Number of bytes to read (1-65536, default: 64)")
+
+
 # Pwntools tool argument models
 class AttachPidArgs(BaseModel):
     pid: int = Field(..., description="Process ID to attach to")
@@ -449,6 +456,15 @@ async def list_tools() -> list[Tool]:
                 "properties": {},
             },
         ),
+        Tool(
+            name="gdb_read_memory",
+            description=(
+                "Read memory bytes from the debugged process at a given address. "
+                "Returns structured hex data. Address can be a hex value like '0x7fffffffe000' "
+                "or a register expression like '$rsp'. Count specifies bytes to read (1-65536)."
+            ),
+            inputSchema=ReadMemoryArgs.model_json_schema(),
+        ),
         # Pwntools tools
         Tool(
             name="gdb_attach_pid",
@@ -619,6 +635,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         elif name == "gdb_vmmap":
             result = gdb_session.get_vmmap()
+
+        elif name == "gdb_read_memory":
+            mem_args = ReadMemoryArgs(**arguments)
+            result = gdb_session.read_memory(address=mem_args.address, count=mem_args.count)
 
         # Pwntools tools
         elif name == "gdb_attach_pid":

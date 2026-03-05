@@ -1480,3 +1480,191 @@ class GDBSession:
             return "data"
 
         return "unknown"
+
+    def checksec(self) -> dict[str, Any]:
+        """
+        Get security properties of the loaded binary using GEF's checksec command.
+
+        Returns:
+            Dict with security properties (NX, PIE, canary, RELRO, etc.)
+        """
+        result = self.execute_command("checksec")
+        if result.get("status") == "error":
+            return result
+
+        output = result.get("output", "")
+        # Parse checksec output into structured data
+        properties: dict[str, Any] = {}
+        for line in output.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # GEF checksec output format: "Property: value"
+            # or colored output with ANSI codes
+            # Strip ANSI escape codes
+            import re
+            clean = re.sub(r'\x1b\[[0-9;]*m', '', line)
+            if ":" in clean:
+                key, _, value = clean.partition(":")
+                key = key.strip().lower().replace(" ", "_")
+                value = value.strip()
+                if key:
+                    properties[key] = value
+
+        return {
+            "status": "success",
+            "properties": properties,
+            "raw_output": output,
+        }
+
+    def telescope(self, address: str = "$rsp", count: int = 20) -> dict[str, Any]:
+        """
+        Use GEF's telescope command to smart-dereference memory.
+
+        Args:
+            address: Start address or register (default: "$rsp")
+            count: Number of entries to display (default: 20)
+
+        Returns:
+            Dict with telescope output
+        """
+        result = self.execute_command(f"telescope {address} {count}")
+        if result.get("status") == "error":
+            return result
+
+        return {
+            "status": "success",
+            "address": address,
+            "count": count,
+            "output": result.get("output", ""),
+        }
+
+    def heap_info(self, subcmd: str = "chunks") -> dict[str, Any]:
+        """
+        Get heap information using GEF's heap commands.
+
+        Args:
+            subcmd: Heap subcommand - 'chunks', 'bins', 'arenas', or 'chunk <addr>'
+
+        Returns:
+            Dict with heap information
+        """
+        allowed_prefixes = ("chunks", "bins", "arenas", "chunk ")
+        if not subcmd.startswith(allowed_prefixes):
+            return {
+                "status": "error",
+                "message": f"Invalid heap subcommand: {subcmd}. Use: chunks, bins, arenas, or 'chunk <addr>'",
+            }
+
+        result = self.execute_command(f"heap {subcmd}")
+        if result.get("status") == "error":
+            return result
+
+        return {
+            "status": "success",
+            "subcommand": subcmd,
+            "output": result.get("output", ""),
+        }
+
+    def got(self) -> dict[str, Any]:
+        """
+        Show the Global Offset Table (GOT) entries using GEF's got command.
+
+        Useful for identifying libc function addresses for leak exploitation.
+
+        Returns:
+            Dict with GOT entries
+        """
+        result = self.execute_command("got")
+        if result.get("status") == "error":
+            return result
+
+        return {
+            "status": "success",
+            "output": result.get("output", ""),
+        }
+
+    def search_memory(
+        self, pattern: str, start_address: Optional[str] = None, end_address: Optional[str] = None
+    ) -> dict[str, Any]:
+        """
+        Search memory for a byte pattern or string.
+
+        Args:
+            pattern: Pattern to search for (string like "FLAG{" or hex bytes like "\\x90\\x90")
+            start_address: Start of search range (default: all mapped memory)
+            end_address: End of search range
+
+        Returns:
+            Dict with search results
+        """
+        if start_address and end_address:
+            cmd = f'find {start_address}, {end_address}, "{pattern}"'
+        else:
+            # Use GEF's grep/search or GDB find across all mapped regions
+            cmd = f'grep "{pattern}"'
+
+        result = self.execute_command(cmd)
+        if result.get("status") == "error":
+            # Fall back to search-memory if grep not available
+            if start_address and end_address:
+                pass  # Already tried find
+            else:
+                result = self.execute_command(f'search-pattern "{pattern}"')
+
+        if result.get("status") == "error":
+            return result
+
+        return {
+            "status": "success",
+            "pattern": pattern,
+            "output": result.get("output", ""),
+        }
+
+    def disassemble(self, location: str, count: Optional[int] = None) -> dict[str, Any]:
+        """
+        Disassemble code at a location.
+
+        Args:
+            location: Function name, address, or range (e.g., "main", "0x401000", "$rip")
+            count: Optional number of instructions (uses GDB x/Ni format)
+
+        Returns:
+            Dict with disassembly output
+        """
+        if count:
+            cmd = f"x/{count}i {location}"
+        else:
+            cmd = f"disassemble {location}"
+
+        result = self.execute_command(cmd)
+        if result.get("status") == "error":
+            return result
+
+        return {
+            "status": "success",
+            "location": location,
+            "output": result.get("output", ""),
+        }
+
+    def deref_string(self, address: str, max_length: int = 200) -> dict[str, Any]:
+        """
+        Read a null-terminated string at a memory address.
+
+        Args:
+            address: Memory address (hex or expression)
+            max_length: Maximum string length to read (default: 200)
+
+        Returns:
+            Dict with the string value
+        """
+        result = self.execute_command(f"x/s {address}")
+        if result.get("status") == "error":
+            return result
+
+        return {
+            "status": "success",
+            "address": address,
+            "output": result.get("output", ""),
+        }
+

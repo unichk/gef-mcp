@@ -112,6 +112,37 @@ class ReadMemoryArgs(BaseModel):
     count: int = Field(64, description="Number of bytes to read (1-65536, default: 64)")
 
 
+class TelescopeArgs(BaseModel):
+    address: str = Field("$rsp", description="Start address or register (default: '$rsp')")
+    count: int = Field(20, description="Number of entries to display (default: 20)")
+
+
+class HeapInfoArgs(BaseModel):
+    subcmd: str = Field(
+        "chunks",
+        description="Heap subcommand: 'chunks', 'bins', 'arenas', or 'chunk <addr>'",
+    )
+
+
+class SearchMemoryArgs(BaseModel):
+    pattern: str = Field(..., description="Pattern to search for (string like 'FLAG{' or hex bytes)")
+    start_address: Optional[str] = Field(None, description="Start address of search range")
+    end_address: Optional[str] = Field(None, description="End address of search range")
+
+
+class DisassembleArgs(BaseModel):
+    location: str = Field(
+        ..., description="Function name, address, or register (e.g., 'main', '0x401000', '$rip')"
+    )
+    count: Optional[int] = Field(
+        None, description="Number of instructions (uses x/Ni format)"
+    )
+
+
+class DerefStringArgs(BaseModel):
+    address: str = Field(..., description="Memory address to read string from (hex or expression)")
+
+
 # Pwntools tool argument models
 class AttachPidArgs(BaseModel):
     pid: int = Field(..., description="Process ID to attach to")
@@ -456,6 +487,67 @@ async def list_tools() -> list[Tool]:
                 "properties": {},
             },
         ),
+        # CTF tools
+        Tool(
+            name="gdb_checksec",
+            description=(
+                "Get security properties of the loaded binary (NX, PIE, canary, RELRO, etc.) "
+                "using GEF's checksec command. Returns structured property data."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="gdb_telescope",
+            description=(
+                "Smart pointer dereference using GEF's telescope command. Shows a chain of "
+                "pointer dereferences at each address, revealing stack contents, heap pointers, "
+                "strings, and code references. Default: telescope from $rsp."
+            ),
+            inputSchema=TelescopeArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_heap_info",
+            description=(
+                "Get heap information using GEF's heap commands. Subcommands: "
+                "'chunks' (list all chunks), 'bins' (show bin lists), "
+                "'arenas' (show arena info), 'chunk <addr>' (inspect specific chunk)."
+            ),
+            inputSchema=HeapInfoArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_got",
+            description=(
+                "Show the Global Offset Table (GOT) entries using GEF's got command. "
+                "Useful for identifying resolved libc function addresses for leak exploitation."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="gdb_search_memory",
+            description=(
+                "Search memory for a byte pattern or string across all mapped regions. "
+                "If start_address and end_address are provided, searches only that range. "
+                "Useful for finding flags, gadgets, or specific byte sequences."
+            ),
+            inputSchema=SearchMemoryArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_disassemble",
+            description=(
+                "Disassemble code at a function name, address, or register. "
+                "Optionally specify count for number of instructions. "
+                "Without count, disassembles the entire function."
+            ),
+            inputSchema=DisassembleArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_deref_string",
+            description=(
+                "Read a null-terminated string at a memory address. "
+                "Useful for inspecting string buffers, format strings, or flag values."
+            ),
+            inputSchema=DerefStringArgs.model_json_schema(),
+        ),
         Tool(
             name="gdb_read_memory",
             description=(
@@ -635,6 +727,36 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         elif name == "gdb_vmmap":
             result = gdb_session.get_vmmap()
+
+        elif name == "gdb_checksec":
+            result = gdb_session.checksec()
+
+        elif name == "gdb_telescope":
+            tel_args = TelescopeArgs(**arguments)
+            result = gdb_session.telescope(address=tel_args.address, count=tel_args.count)
+
+        elif name == "gdb_heap_info":
+            heap_args = HeapInfoArgs(**arguments)
+            result = gdb_session.heap_info(subcmd=heap_args.subcmd)
+
+        elif name == "gdb_got":
+            result = gdb_session.got()
+
+        elif name == "gdb_search_memory":
+            search_args = SearchMemoryArgs(**arguments)
+            result = gdb_session.search_memory(
+                pattern=search_args.pattern,
+                start_address=search_args.start_address,
+                end_address=search_args.end_address,
+            )
+
+        elif name == "gdb_disassemble":
+            dis_args = DisassembleArgs(**arguments)
+            result = gdb_session.disassemble(location=dis_args.location, count=dis_args.count)
+
+        elif name == "gdb_deref_string":
+            ds_args = DerefStringArgs(**arguments)
+            result = gdb_session.deref_string(address=ds_args.address)
 
         elif name == "gdb_read_memory":
             mem_args = ReadMemoryArgs(**arguments)

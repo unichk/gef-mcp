@@ -581,3 +581,126 @@ Get the virtual memory map of the debugged process using the GEF `vmmap` command
   ]
 }
 ```
+
+## Pwntools Integration
+
+Tools for attaching to and debugging processes spawned by pwntools exploit scripts.
+
+### `gdb_attach_pid`
+Attach GDB to a running process by PID.
+
+**Parameters:**
+- `pid` (required): Process ID to attach to
+- `binary` (optional): Path to executable for symbol resolution
+- `working_dir` (optional): Working directory for GDB
+
+**Example:**
+```json
+{"pid": 12345, "binary": "./chall"}
+```
+
+### `gdb_find_processes`
+Find running processes by name substring.
+
+**Parameters:**
+- `name` (required): Process name substring to search for (case-insensitive)
+- `limit` (optional): Maximum results (default: 20, range: 1-200)
+
+**Example:**
+```json
+{"name": "chall", "limit": 10}
+```
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "name": "chall",
+  "matches": [
+    {"pid": 54321, "comm": "chall", "exe": "/home/user/chall", "cmdline": "./chall"}
+  ]
+}
+```
+
+### `gdb_wait_for_process`
+Wait for a process matching name to appear. Polls periodically until found or timeout.
+
+**Parameters:**
+- `name` (required): Process name substring to wait for
+- `timeout_sec` (optional): Max wait time in seconds (default: 10, range: 0-300)
+- `poll_interval_sec` (optional): Poll interval in seconds (default: 0.2, range: 0-5)
+
+### `gdb_attach_by_name`
+Wait for a process by name, then attach GDB to it. Combines wait + attach.
+
+**Parameters:**
+- `name` (required): Process name substring to find and attach to
+- `binary` (optional): Path to executable for symbol resolution
+- `working_dir` (optional): Working directory for GDB
+- `timeout_sec` (optional): Max wait time in seconds (default: 10)
+
+### `gdb_pwntools_attach_and_break`
+All-in-one: wait for process → attach GDB → apply exploit settings → set breakpoints.
+
+**This is the recommended tool for the typical pwntools workflow.**
+
+**Parameters:**
+- `name` (required): Process name substring to find and attach to
+- `breakpoints` (required): List of breakpoint locations (e.g., `["main", "*0x40123a"]`)
+- `binary` (optional): Path to executable for symbol resolution
+- `working_dir` (optional): Working directory for GDB
+- `timeout_sec` (optional): Max wait time (default: 10)
+- `follow_fork_mode` (optional): `"parent"` or `"child"` (default: `"parent"`)
+- `detach_on_fork` (optional): Detach from child on fork (default: true)
+
+**Example:**
+```json
+{
+  "name": "chall",
+  "breakpoints": ["main", "*0x40123a"],
+  "binary": "./chall",
+  "timeout_sec": 15
+}
+```
+
+**Typical workflow:**
+```python
+# In pwntools script:
+p = process('./chall')
+pause()  # Wait for MCP to attach
+```
+```
+# Then via MCP:
+gdb_pwntools_attach_and_break(name="chall", breakpoints=["main"], binary="./chall")
+gdb_continue()
+# ... inspect state, set more breakpoints, etc.
+```
+
+### `gdb_pwntools_bootstrap`
+Apply exploit-friendly settings on an already-attached session.
+
+Sets: follow-fork-mode, detach-on-fork, intel disasm, pagination off, asm-demangle, disassemble-next-line.
+
+**Parameters:**
+- `breakpoints` (optional): List of breakpoint locations to set
+- `follow_fork_mode` (optional): `"parent"` or `"child"` (default: `"parent"`)
+- `detach_on_fork` (optional): Detach from child on fork (default: true)
+
+### `gdb_generate_pwntools_gdbscript`
+Generate a pwntools `gdb.attach()` gdbscript string.
+
+**Parameters:**
+- `breakpoints` (optional): List of breakpoint locations
+- `commands` (optional): Additional GDB commands
+- `continue_after` (optional): Add `c` at end (default: true)
+
+**Example Output:**
+```json
+{
+  "status": "success",
+  "gdbscript": "set pagination off\nset disassembly-flavor intel\nb main\nb *0x401234\nc"
+}
+```
+
+Use in pwntools: `gdb.attach(p, gdbscript=result['gdbscript'])`
+

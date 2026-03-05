@@ -156,3 +156,96 @@ class TestCallFunctionArgs:
 
         args = CallFunctionArgs(function_call='snprintf(buf, 100, "%d", x)')
         assert args.function_call == 'snprintf(buf, 100, "%d", x)'
+
+
+class TestAttachPidArgs:
+    """Test cases for AttachPidArgs model."""
+
+    def test_pid_required(self):
+        """Test that pid is required."""
+        from gdb_mcp.server import AttachPidArgs
+
+        with pytest.raises(ValidationError):
+            AttachPidArgs()
+
+    def test_minimal(self):
+        """Test with just pid."""
+        from gdb_mcp.server import AttachPidArgs
+
+        args = AttachPidArgs(pid=12345)
+        assert args.pid == 12345
+        assert args.binary is None
+        assert args.working_dir is None
+
+    def test_full(self):
+        """Test with all args."""
+        from gdb_mcp.server import AttachPidArgs
+
+        args = AttachPidArgs(pid=12345, binary="./chall", working_dir="/tmp")
+        assert args.pid == 12345
+        assert args.binary == "./chall"
+        assert args.working_dir == "/tmp"
+
+
+class TestFindProcessesArgs:
+    """Test cases for FindProcessesArgs model."""
+
+    def test_name_required(self):
+        from gdb_mcp.server import FindProcessesArgs
+
+        with pytest.raises(ValidationError):
+            FindProcessesArgs()
+
+    def test_defaults(self):
+        from gdb_mcp.server import FindProcessesArgs
+
+        args = FindProcessesArgs(name="chall")
+        assert args.name == "chall"
+        assert args.limit == 20
+
+
+class TestPwntoolsAttachAndBreakArgs:
+    """Test cases for PwntoolsAttachAndBreakArgs model."""
+
+    def test_required_fields(self):
+        from gdb_mcp.server import PwntoolsAttachAndBreakArgs
+
+        with pytest.raises(ValidationError):
+            PwntoolsAttachAndBreakArgs()
+
+    def test_full(self):
+        from gdb_mcp.server import PwntoolsAttachAndBreakArgs
+
+        args = PwntoolsAttachAndBreakArgs(
+            name="chall",
+            breakpoints=["main", "*0x401234"],
+            binary="./chall",
+            follow_fork_mode="child",
+            detach_on_fork=False,
+        )
+        assert args.name == "chall"
+        assert args.breakpoints == ["main", "*0x401234"]
+        assert args.follow_fork_mode == "child"
+        assert args.detach_on_fork is False
+
+
+class TestGenerateGdbscriptArgs:
+    """Test cases for GenerateGdbscriptArgs model."""
+
+    def test_defaults(self):
+        from gdb_mcp.server import GenerateGdbscriptArgs
+
+        args = GenerateGdbscriptArgs()
+        assert args.breakpoints is None
+        assert args.commands is None
+        assert args.continue_after is True
+
+    def test_full(self):
+        from gdb_mcp.server import GenerateGdbscriptArgs
+
+        args = GenerateGdbscriptArgs(
+            breakpoints=["main"], commands=["x/20gx $rsp"], continue_after=False
+        )
+        assert args.breakpoints == ["main"]
+        assert args.commands == ["x/20gx $rsp"]
+        assert args.continue_after is False

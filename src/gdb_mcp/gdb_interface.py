@@ -1195,6 +1195,55 @@ class GDBSession:
             "has_controller": self.controller is not None,
         }
 
+    def attach_to_pid(
+        self, pid: int, binary: Optional[str] = None, working_dir: Optional[str] = None
+    ) -> dict[str, Any]:
+        """
+        Attach GDB to a running process by PID.
+
+        Starts a new GDB session (if not already running), optionally loads a binary
+        for symbols, then attaches to the specified PID. After attach, the process
+        is paused and ready for breakpoints/inspection.
+
+        Args:
+            pid: Process ID to attach to
+            binary: Optional path to the executable (helps with symbol resolution)
+            working_dir: Optional working directory for GDB
+
+        Returns:
+            Dict with status and attach information
+        """
+        # If session already exists, stop it first
+        if self.controller:
+            logger.info("Stopping existing session before attach")
+            self.stop()
+
+        # Start a fresh GDB session with the binary (for symbols) but don't run it
+        start_result = self.start(program=binary, working_dir=working_dir)
+        if start_result.get("status") == "error":
+            return start_result
+
+        # Attach to the PID
+        logger.info(f"Attaching to PID {pid}")
+        result = self.execute_command(f"-target-attach {pid}")
+
+        if result.get("status") == "error":
+            error_msg = result.get("message", "Unknown error")
+            logger.error(f"Failed to attach to PID {pid}: {error_msg}")
+            self.stop()
+            return {
+                "status": "error",
+                "message": f"Failed to attach to PID {pid}: {error_msg}",
+            }
+
+        self.target_loaded = True
+        return {
+            "status": "success",
+            "message": f"Attached to PID {pid}",
+            "pid": pid,
+            "binary": binary,
+        }
+
     def call_function(
         self, function_call: str, timeout_sec: int = DEFAULT_TIMEOUT_SEC
     ) -> dict[str, Any]:

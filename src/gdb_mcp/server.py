@@ -9,6 +9,7 @@ from mcp.server import Server
 from mcp.types import Tool, TextContent
 from pydantic import BaseModel, Field
 from .gdb_interface import GDBSession
+from . import pwntools_helpers
 
 # Set up logging - use GDB_MCP_LOG_LEVEL environment variable
 log_level = os.environ.get("GDB_MCP_LOG_LEVEL", "INFO").upper()
@@ -101,6 +102,91 @@ class CallFunctionArgs(BaseModel):
     function_call: str = Field(
         ...,
         description="Function call expression (e.g., 'printf(\"hello\\n\")' or 'my_func(arg1, arg2)')",
+    )
+
+
+# Pwntools tool argument models
+class AttachPidArgs(BaseModel):
+    pid: int = Field(..., description="Process ID to attach to")
+    binary: Optional[str] = Field(
+        None, description="Path to executable for symbol resolution"
+    )
+    working_dir: Optional[str] = Field(
+        None, description="Working directory for GDB"
+    )
+
+
+class FindProcessesArgs(BaseModel):
+    name: str = Field(..., description="Process name substring to search for")
+    limit: int = Field(20, description="Maximum number of results (1-200)")
+
+
+class WaitForProcessArgs(BaseModel):
+    name: str = Field(..., description="Process name substring to wait for")
+    timeout_sec: float = Field(
+        10.0, description="Maximum time to wait in seconds (0-300)"
+    )
+    poll_interval_sec: float = Field(
+        0.2, description="Poll interval in seconds (0-5)"
+    )
+
+
+class AttachByNameArgs(BaseModel):
+    name: str = Field(..., description="Process name substring to find and attach to")
+    binary: Optional[str] = Field(
+        None, description="Path to executable for symbol resolution"
+    )
+    working_dir: Optional[str] = Field(
+        None, description="Working directory for GDB"
+    )
+    timeout_sec: float = Field(
+        10.0, description="Maximum time to wait for process (0-300)"
+    )
+
+
+class PwntoolsAttachAndBreakArgs(BaseModel):
+    name: str = Field(..., description="Process name substring to find and attach to")
+    breakpoints: list[str] = Field(
+        ..., description="List of breakpoint locations (function names, addresses like *0x401234, file:line)"
+    )
+    binary: Optional[str] = Field(
+        None, description="Path to executable for symbol resolution"
+    )
+    working_dir: Optional[str] = Field(
+        None, description="Working directory for GDB"
+    )
+    timeout_sec: float = Field(
+        10.0, description="Maximum time to wait for process (0-300)"
+    )
+    follow_fork_mode: str = Field(
+        "parent", description="Fork follow mode: 'parent' or 'child'"
+    )
+    detach_on_fork: bool = Field(
+        True, description="Whether to detach from child on fork"
+    )
+
+
+class PwntoolsBootstrapArgs(BaseModel):
+    breakpoints: Optional[list[str]] = Field(
+        None, description="Optional list of breakpoint locations to set"
+    )
+    follow_fork_mode: str = Field(
+        "parent", description="Fork follow mode: 'parent' or 'child'"
+    )
+    detach_on_fork: bool = Field(
+        True, description="Whether to detach from child on fork"
+    )
+
+
+class GenerateGdbscriptArgs(BaseModel):
+    breakpoints: Optional[list[str]] = Field(
+        None, description="List of breakpoint locations"
+    )
+    commands: Optional[list[str]] = Field(
+        None, description="Additional GDB commands to include in the script"
+    )
+    continue_after: bool = Field(
+        True, description="Whether to add 'c' (continue) at the end of the script"
     )
 
 
@@ -363,6 +449,75 @@ async def list_tools() -> list[Tool]:
                 "properties": {},
             },
         ),
+        # Pwntools tools
+        Tool(
+            name="gdb_attach_pid",
+            description=(
+                "Attach GDB to a running process by PID. Optionally provide a binary "
+                "path for symbol resolution. This stops any existing GDB session first, "
+                "then attaches to the specified PID. After attach, the process is paused "
+                "and ready for breakpoints/inspection."
+            ),
+            inputSchema=AttachPidArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_find_processes",
+            description=(
+                "Find running processes by name substring match. Searches across "
+                "process comm, exe path, and full command line. Results sorted newest-first. "
+                "Useful for finding pwntools-spawned processes before attaching."
+            ),
+            inputSchema=FindProcessesArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_wait_for_process",
+            description=(
+                "Wait for a process matching name to appear. Polls periodically until "
+                "a match is found or timeout is reached. Useful when pwntools spawns "
+                "the target and you need to wait for it to start."
+            ),
+            inputSchema=WaitForProcessArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_attach_by_name",
+            description=(
+                "Wait for a process by name, then attach GDB to it. Combines "
+                "wait_for_process + attach_pid in one call. The newest matching "
+                "process (highest PID) is chosen."
+            ),
+            inputSchema=AttachByNameArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_pwntools_attach_and_break",
+            description=(
+                "All-in-one pwntools attach: wait for process, attach GDB, apply "
+                "exploit-friendly settings (fork mode, pagination off, intel disasm), "
+                "and set breakpoints. This is the recommended tool for the typical "
+                "pwntools workflow: spawn process in pwntools, then call this tool "
+                "to attach and set up breakpoints in one step."
+            ),
+            inputSchema=PwntoolsAttachAndBreakArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_pwntools_bootstrap",
+            description=(
+                "Apply exploit-friendly GDB settings on an already-attached session: "
+                "set fork follow mode, detach-on-fork, intel disassembly, pagination off, "
+                "and optionally set initial breakpoints. Use this after gdb_attach_pid "
+                "or gdb_start_session if you didn't use gdb_pwntools_attach_and_break."
+            ),
+            inputSchema=PwntoolsBootstrapArgs.model_json_schema(),
+        ),
+        Tool(
+            name="gdb_generate_pwntools_gdbscript",
+            description=(
+                "Generate a pwntools gdb.attach() gdbscript string. Returns a script "
+                "with pagination off, intel disasm flavor, breakpoints, custom commands, "
+                "and optional continue. Use the output in pwntools: "
+                "gdb.attach(p, gdbscript=result['gdbscript'])"
+            ),
+            inputSchema=GenerateGdbscriptArgs.model_json_schema(),
+        ),
     ]
 
 
@@ -464,6 +619,123 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         elif name == "gdb_vmmap":
             result = gdb_session.get_vmmap()
+
+        # Pwntools tools
+        elif name == "gdb_attach_pid":
+            attach_args = AttachPidArgs(**arguments)
+            result = gdb_session.attach_to_pid(
+                pid=attach_args.pid,
+                binary=attach_args.binary,
+                working_dir=attach_args.working_dir,
+            )
+
+        elif name == "gdb_find_processes":
+            find_args = FindProcessesArgs(**arguments)
+            if find_args.limit < 1 or find_args.limit > 200:
+                result = {"status": "error", "message": "limit must be between 1 and 200"}
+            else:
+                matches = pwntools_helpers.find_processes(find_args.name)[:find_args.limit]
+                result = {"status": "success", "name": find_args.name, "matches": matches}
+
+        elif name == "gdb_wait_for_process":
+            wait_args = WaitForProcessArgs(**arguments)
+            if wait_args.timeout_sec <= 0 or wait_args.timeout_sec > 300:
+                result = {"status": "error", "message": "timeout_sec must be between 0 and 300"}
+            elif wait_args.poll_interval_sec <= 0 or wait_args.poll_interval_sec > 5:
+                result = {"status": "error", "message": "poll_interval_sec must be between 0 and 5"}
+            else:
+                result = await pwntools_helpers.wait_for_process(
+                    name=wait_args.name,
+                    timeout_sec=wait_args.timeout_sec,
+                    poll_interval_sec=wait_args.poll_interval_sec,
+                )
+
+        elif name == "gdb_attach_by_name":
+            abn_args = AttachByNameArgs(**arguments)
+            wait_result = await pwntools_helpers.wait_for_process(
+                name=abn_args.name, timeout_sec=abn_args.timeout_sec
+            )
+            if wait_result.get("status") == "error":
+                result = wait_result
+            else:
+                pid = int(wait_result["match"]["pid"])
+                result = gdb_session.attach_to_pid(
+                    pid=pid, binary=abn_args.binary, working_dir=abn_args.working_dir
+                )
+                if result.get("status") == "success":
+                    result["matched_process"] = wait_result["match"]
+
+        elif name == "gdb_pwntools_attach_and_break":
+            pab_args = PwntoolsAttachAndBreakArgs(**arguments)
+            # Step 1: Wait for and attach to the process
+            wait_result = await pwntools_helpers.wait_for_process(
+                name=pab_args.name, timeout_sec=pab_args.timeout_sec
+            )
+            if wait_result.get("status") == "error":
+                result = wait_result
+            else:
+                pid = int(wait_result["match"]["pid"])
+                attach_result = gdb_session.attach_to_pid(
+                    pid=pid, binary=pab_args.binary, working_dir=pab_args.working_dir
+                )
+                if attach_result.get("status") == "error":
+                    result = attach_result
+                else:
+                    # Step 2: Bootstrap (apply exploit settings + set breakpoints)
+                    bootstrap_results = []
+                    # Apply runtime options
+                    fork_mode = pab_args.follow_fork_mode
+                    detach = "on" if pab_args.detach_on_fork else "off"
+                    gdb_session.execute_command(f"set follow-fork-mode {fork_mode}")
+                    gdb_session.execute_command(f"set detach-on-fork {detach}")
+                    gdb_session.execute_command("set disassembly-flavor intel")
+                    gdb_session.execute_command("set pagination off")
+                    gdb_session.execute_command("set print asm-demangle on")
+                    gdb_session.execute_command("set disassemble-next-line on")
+                    # Set breakpoints
+                    for bp in pab_args.breakpoints:
+                        bp_result = gdb_session.set_breakpoint(location=bp)
+                        bootstrap_results.append(bp_result)
+                    result = {
+                        "status": "success",
+                        "message": f"Attached to PID {pid} and set {len(pab_args.breakpoints)} breakpoints",
+                        "pid": pid,
+                        "binary": pab_args.binary,
+                        "matched_process": wait_result["match"],
+                        "breakpoints": bootstrap_results,
+                    }
+
+        elif name == "gdb_pwntools_bootstrap":
+            boot_args = PwntoolsBootstrapArgs(**arguments)
+            if not gdb_session.controller:
+                result = {"status": "error", "message": "No active GDB session to bootstrap"}
+            else:
+                fork_mode = boot_args.follow_fork_mode
+                detach = "on" if boot_args.detach_on_fork else "off"
+                gdb_session.execute_command(f"set follow-fork-mode {fork_mode}")
+                gdb_session.execute_command(f"set detach-on-fork {detach}")
+                gdb_session.execute_command("set disassembly-flavor intel")
+                gdb_session.execute_command("set pagination off")
+                gdb_session.execute_command("set print asm-demangle on")
+                gdb_session.execute_command("set disassemble-next-line on")
+                bp_results = []
+                for bp in boot_args.breakpoints or []:
+                    bp_result = gdb_session.set_breakpoint(location=bp)
+                    bp_results.append(bp_result)
+                result = {
+                    "status": "success",
+                    "message": "Bootstrap complete",
+                    "breakpoints": bp_results,
+                }
+
+        elif name == "gdb_generate_pwntools_gdbscript":
+            gs_args = GenerateGdbscriptArgs(**arguments)
+            script = pwntools_helpers.generate_gdbscript(
+                breakpoints=gs_args.breakpoints,
+                commands=gs_args.commands,
+                continue_after=gs_args.continue_after,
+            )
+            result = {"status": "success", "gdbscript": script}
 
         else:
             result = {"status": "error", "message": f"Unknown tool: {name}"}
